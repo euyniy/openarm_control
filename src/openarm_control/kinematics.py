@@ -37,7 +37,7 @@ import mink.exceptions
 import mujoco
 import numpy as np
 
-from openarm_control.config import ArmSetup
+from openarm_control.config import ARM_JOINT_VELOCITY_LIMITS_RAD_S, ArmSetup
 from openarm_control.poses import pose_to_se3
 
 
@@ -54,6 +54,7 @@ class IKParams:
     diag_reg: float = 0.0
     dt: float = 0.1
     max_iters: int = 5
+    velocity_limits: dict[str, float] | None = None
 
 
 class Kinematics:
@@ -164,6 +165,9 @@ class _IKSolver:
 
         self._limits = [mink.ConfigurationLimit(setup.model)]
 
+        if params.velocity_limits is not None:
+            self._limits.append(mink.VelocityLimit(setup.model, params.velocity_limits))
+
         self._posture_task = mink.PostureTask(setup.model, cost=params.posture_cost)
         self._posture_task.set_target(mid_qpos)
 
@@ -235,6 +239,15 @@ def _frame_name(setup: ArmSetup, side: str) -> str:
     }[ftype]
     return mujoco.mj_id2name(setup.model, obj, fid)
 
+def _convert_velocity(
+    rad_per_sec: float,
+    dt: float,
+    max_iters: int,
+    tick_hz: float,
+) -> float:
+    if max_iters <= 0 or dt <= 0.0 or tick_hz <= 0.0:
+        raise ValueError("max_iters, dt, and tick_hz must all be positive.")
+    return rad_per_sec / (max_iters * dt * tick_hz)
 
 # ── CLI helpers ───────────────────────────────────────────────────────────────
 
@@ -249,10 +262,25 @@ def register_ik_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dt",           type=float, default=0.1,   help="Integration timestep per iteration (default: 0.1)")
     parser.add_argument("--posture-cost", type=float, default=0.01,  help="Posture task weight, 0=disabled (default: 0.01)")
     parser.add_argument("--diag-reg",     type=float, default=0.0,   help="QP diagonal regularization (default: 0.0)")
+    parser.add_argument("--vel-scale",    type=float, default=None,  help="Scale velocity limit safety. 1=90deg/s for shoulder. Unset = VelocityLimit disabled.")
+    parser.add_argument("--tick-hz",      type=float, default=500.0, help="Dora tick rate in Hz; used only for --vel-scale unit conversion")
 
 
 def ik_params_from_args(args: argparse.Namespace) -> IKParams:
     """Build IKParams from parsed args (requires register_ik_args to have been called)."""
+    velocity_limits: dict[str, float] | None = None
+    if args.vel_scale is not None:
+        velocity_limits = {
+            f"openarm_{side}_joint{i + 1}": _convert_velocity(
+                rad_per_sec=v * args.vel_scale,
+                dt=args.dt,
+                max_iters=args.max_iters,
+                tick_hz=args.tick_hz,
+            )
+            for side in ("left", "right")
+            for i, v in enumerate(ARM_JOINT_VELOCITY_LIMITS_RAD_S)
+        }
+
     return IKParams(
         position_cost=args.pos_cost,
         orientation_cost=args.ori_cost,
@@ -263,4 +291,5 @@ def ik_params_from_args(args: argparse.Namespace) -> IKParams:
         diag_reg=args.diag_reg,
         dt=args.dt,
         max_iters=args.max_iters,
+        velocity_limits=velocity_limits,
     )
