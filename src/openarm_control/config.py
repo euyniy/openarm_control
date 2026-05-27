@@ -20,8 +20,8 @@ import argparse
 
 import mujoco
 import numpy as np
-import openarm_mujoco_v2 as openarm_mujoco
-from openarm_mujoco_v2 import JointResolver
+import openarm_mujoco.v2 as openarm_mujoco
+from openarm_mujoco.v2 import JointResolver
 
 _DEFAULT_XML = openarm_mujoco.openarm_cell_xml()
 
