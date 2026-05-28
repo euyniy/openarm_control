@@ -316,26 +316,25 @@ def register_ik_args(parser: argparse.ArgumentParser) -> None:
         help="QP diagonal regularization (default: 0.0)",
     )
     parser.add_argument(
-        "--vel-scale",
-        type=float,
-        default=None,
-        help="Scale velocity limit safety. 1=90deg/s for shoulder. Unset = VelocityLimit disabled.",
+        "--limit-velocity",
+        action="store_true",
+        help="Enable per-joint velocity limits (caps in config.ARM_JOINT_VELOCITY_LIMITS_RAD_S).",
     )
     parser.add_argument(
         "--tick-hz",
         type=float,
         default=500.0,
-        help="Dora tick rate in Hz; used only for --vel-scale unit conversion",
+        help="Dora tick rate in Hz; must match the dataflow timer (default: 500.0).",
     )
 
 
 def ik_params_from_args(args: argparse.Namespace) -> IKParams:
     """Build IKParams from parsed args (requires register_ik_args to have been called)."""
     velocity_limits: dict[str, float] | None = None
-    if args.vel_scale is not None:
+    if args.limit_velocity:
         velocity_limits = {
             f"openarm_{side}_joint{i + 1}": _convert_velocity(
-                rad_per_sec=v * args.vel_scale,
+                rad_per_sec=v,
                 dt=args.dt,
                 max_iters=args.max_iters,
                 tick_hz=args.tick_hz,
